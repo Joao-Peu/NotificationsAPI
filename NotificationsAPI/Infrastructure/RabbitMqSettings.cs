@@ -1,6 +1,6 @@
 namespace NotificationsAPI.Infrastructure;
 
-public class RabbitMqOptions
+public class RabbitMqSettings
 {
     public string HostName { get; set; } = "localhost";
     public int Port { get; set; } = 5672;

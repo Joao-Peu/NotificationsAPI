@@ -1,20 +1,39 @@
+using MassTransit;
+using Microsoft.Extensions.Configuration;
 using NotificationsAPI.Infrastructure;
 using NotificationsAPI.Workers;
-using Microsoft.Extensions.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
 // config
-builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMq"));
+builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
 
-// infrastructure
-builder.Services.AddSingleton<IRabbitMqConnection, RabbitMqConnection>();
+builder.Services.AddMassTransit(x =>
+{
+    var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMqSettings>()!;
 
-// workers
-builder.Services.AddHostedService<UserCreatedConsumer>();
-builder.Services.AddHostedService<PaymentProcessedConsumer>();
+    x.AddConsumer<UserCreatedConsumer>();
+    x.AddConsumer<PaymentProcessedConsumer>();
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        cfg.Host(rabbitMQSettings.HostName, host =>
+        {
+            host.Username(rabbitMQSettings.UserName);
+            host.Password(rabbitMQSettings.Password);
+        });
+
+        cfg.UseMessageRetry(r =>
+        {
+            r.Exponential(5, TimeSpan.FromSeconds(3), TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(3));
+        });
+
+        cfg.ConfigureEndpoints(context);
+    });
+
+});
 
 var app = builder.Build();
 
