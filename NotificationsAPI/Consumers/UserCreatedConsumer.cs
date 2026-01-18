@@ -1,7 +1,7 @@
 using MassTransit;
-using NotificationsAPI.Domain.Events;
+using Shared.Events;
 
-namespace NotificationsAPI.Workers;
+namespace NotificationsAPI.Consumers;
 
 public class UserCreatedConsumer(ILogger<UserCreatedConsumer> logger) : IConsumer<UserCreatedEvent>
 {

@@ -1,14 +1,13 @@
 using MassTransit;
-using Microsoft.Extensions.Configuration;
+using NotificationsAPI.Consumers;
 using NotificationsAPI.Infrastructure;
-using NotificationsAPI.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
 // config
-builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
+//builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
 
 builder.Services.AddMassTransit(x =>
 {
@@ -19,7 +18,7 @@ builder.Services.AddMassTransit(x =>
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host(rabbitMQSettings.HostName, host =>
+        cfg.Host(rabbitMQSettings.HostName, "/", host =>
         {
             host.Username(rabbitMQSettings.UserName);
             host.Password(rabbitMQSettings.Password);

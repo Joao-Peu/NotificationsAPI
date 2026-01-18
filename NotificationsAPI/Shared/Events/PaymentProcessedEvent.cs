@@ -1,4 +1,4 @@
-namespace NotificationsAPI.Domain.Events;
+namespace NotificationsAPI.Shared.Events;
 
 public enum PaymentStatus { Approved, Rejected }
 

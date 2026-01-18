@@ -1,8 +1,7 @@
 using MassTransit;
-using NotificationsAPI.Domain.Events;
-using NotificationsAPI.Infrastructure;
+using NotificationsAPI.Shared.Events;
 
-namespace NotificationsAPI.Workers;
+namespace NotificationsAPI.Consumers;
 
 public class PaymentProcessedConsumer(ILogger<PaymentProcessedConsumer> logger) : IConsumer<PaymentProcessedEvent>
 {
