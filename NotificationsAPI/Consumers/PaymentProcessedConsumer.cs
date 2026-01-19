@@ -1,5 +1,5 @@
 using MassTransit;
-using NotificationsAPI.Shared.Events;
+using Shared.Events;
 
 namespace NotificationsAPI.Consumers;
 
@@ -9,7 +9,7 @@ public class PaymentProcessedConsumer(ILogger<PaymentProcessedConsumer> logger) 
     {
         var message = context.Message;
 
-        if (message.Status == PaymentStatus.Approved)
+        if (message.Status == "Approved")
         {
             logger.LogInformation("[NotificationsAPI] Purchase approved for UserId={UserId}, GameId={GameId}, Price={Price}", message.UserId, message.GameId, message.Price);
             await Task.Delay(2000);

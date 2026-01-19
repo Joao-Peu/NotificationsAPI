@@ -1,5 +1,3 @@
-namespace NotificationsAPI.Shared.Events;
+namespace Shared.Events;
 
-public enum PaymentStatus { Approved, Rejected }
-
-public record PaymentProcessedEvent(Guid UserId, Guid GameId, decimal Price, PaymentStatus Status);
+public record PaymentProcessedEvent(Guid OrderId, Guid UserId, Guid GameId, decimal Price, string Status);
