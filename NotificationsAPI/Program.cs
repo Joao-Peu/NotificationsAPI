@@ -6,9 +6,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-// config
-//builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
-
 builder.Services.AddMassTransit(x =>
 {
     var rabbitMQSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMqSettings>()!;
