@@ -26,6 +26,11 @@ builder.Services.AddMassTransit(x =>
             r.Exponential(5, TimeSpan.FromSeconds(3), TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(3));
         });
 
+        cfg.ReceiveEndpoint("notifications-payment-processed", e =>
+        {
+            e.ConfigureConsumer<PaymentProcessedConsumer>(context);
+        });
+
         cfg.ConfigureEndpoints(context);
     });
 
