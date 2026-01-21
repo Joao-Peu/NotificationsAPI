@@ -9,24 +9,31 @@
 cd NotificationsAPI
 
 # 2. Build da imagem Docker
-docker build -t notificationsapi:latest .
+docker build -t notifications-api:latest .
 
 # 3. Deploy no Kubernetes (ordem correta)
 cd ..
 cd k8s
 
-# RabbitMQ
-kubectl apply -f rabbitmq-deployment.yaml
+# Namespace
+kubectl apply -f namespace.yaml
 
-# NotificationsAPI
-kubectl apply -f notifications-deployment.yaml
+# RabbitMQ (PVC, Deployment, Service, ConfigMap, Secret)
+kubectl apply -f services/configmap-rabbitmq.yaml -n microservices
+kubectl apply -f services/secrets-rabbitmq.yaml -n microservices
+kubectl apply -f services/deployment-rabbitmq.yaml -n microservices
+
+# NotificationsAPI (ConfigMap, Deployment, Service)
+kubectl apply -f notifications-api/notifications-configmap.yaml -n microservices
+kubectl apply -f notifications-api/notifications-deployment.yaml -n microservices
+kubectl apply -f notifications-api/notaifications-service.yaml -n microservices
 
 # 4. Verificar status
-kubectl get pods
-kubectl logs -f deployment/notifications-api
+kubectl get pods -n microservices
+kubectl logs -n microservices -f deployment/notifications-api
 
-# 5. Testar Health Check
-kubectl port-forward service/notifications-api 8081:80
+# 5. Testar Health Check (port-forward)
+kubectl -n microservices port-forward service/notifications-api 8081:80
 ```
 
 ### 📦 Deploy Automático
@@ -38,10 +45,10 @@ Use o script PowerShell para deploy completo:
 .\k8s\deploy-all.ps1
 
 # Verificar logs
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 
 # Acessar RabbitMQ Management UI
-kubectl port-forward service/rabbitmq 15672:15672
+kubectl -n microservices port-forward service/rabbitmq-service 15672:15672
 # Acesse: http://localhost:15672
 # Login: fiap / fiap123
 ```
@@ -57,26 +64,47 @@ kubectl port-forward service/rabbitmq 15672:15672
 
 ## ⚙️ Configuração
 
-### Variáveis de Ambiente
-O .NET Configuration usa `__` (double underscore) para hierarquia de seções:
+### Variáveis de Ambiente (via Kubernetes)
+A aplicação lê configurações de `ConfigMap` e `Secret`:
 
-```sh
-# RabbitMQ
-RABBITMQ__HOSTNAME=rabbitmq
-RABBITMQ__PORT=5672
-RABBITMQ__USERNAME=fiap
-RABBITMQ__PASSWORD=fiap123
+- `rabbitmq-config` (`ConfigMap`):
+  - `hostname`: `rabbitmq-service`
+  - `port`: `5672`
+- `rabbitmq-credentials` (`Secret`):
+  - `username`: `fiap`
+  - `password`: `fiap123`
+
+No `Deployment` da `notifications-api`, os envs estão mapeados para a hierarquia de configuração do .NET:
+
+```yaml
+- name: RabbitMQ__HostName
+  valueFrom:
+    configMapKeyRef:
+      name: rabbitmq-config
+      key: hostname
+
+- name: RabbitMQ__UserName
+  valueFrom:
+    secretKeyRef:
+      name: rabbitmq-credentials
+      key: username
+
+- name: RabbitMQ__Password
+  valueFrom:
+    secretKeyRef:
+      name: rabbitmq-credentials
+      key: password
 ```
 
 ### Mapeamento no Código
 
 ```csharp
 // Program.cs lê assim:
-builder.Configuration.GetSection("RabbitMQ").Get<RabbitMqSettings>()
-// → RABBITMQ__HOSTNAME
-// → RABBITMQ__PORT
-// → RABBITMQ__USERNAME
-// → RABBITMQ__PASSWORD
+builder.Configuration.GetSection("RabbitMQ").Get<RabbitMqSettings>();
+// → RabbitMQ__HostName (rabbitmq-service)
+// → RabbitMQ__Port (5672)
+// → RabbitMQ__UserName (fiap)
+// → RabbitMQ__Password (fiap123)
 ```
 
 ---
@@ -86,13 +114,20 @@ builder.Configuration.GetSection("RabbitMQ").Get<RabbitMqSettings>()
 ### Recursos Aplicados
 
 ```
+# Namespace
+Namespace: microservices
+
 # RabbitMQ
-Deployment: rabbitmq                (RabbitMQ 3 com Management)
-Service:    rabbitmq                (ClusterIP, portas 5672 + 15672)
+PVC:       rabbitmq-pvc
+Deployment: rabbitmq
+Service:    rabbitmq-service         (ClusterIP, portas 5672 + 15672)
+ConfigMap:  rabbitmq-config          (hostname/ports)
+Secret:     rabbitmq-credentials     (username/password)
 
 # NotificationsAPI
-Deployment: notifications-api       (2 réplicas)
-Service:    notifications-api       (ClusterIP, porta 80)
+ConfigMap:  notifications-api-config (ASP.NET Core env/urls)
+Deployment: notifications-api        (2 réplicas, initContainer aguardando RabbitMQ)
+Service:    notifications-api        (ClusterIP, porta 80)
 ```
 
 ### Portas Configuradas
@@ -100,8 +135,8 @@ Service:    notifications-api       (ClusterIP, porta 80)
 - **NotificationsAPI Service**: 80 (ClusterIP interno)
 - **RabbitMQ AMQP**: 5672 (protocolo de mensageria)
 - **RabbitMQ Management**: 15672 (UI web)
-- **Port-forward API**: `kubectl port-forward service/notifications-api 8081:80`
-- **Port-forward RabbitMQ**: `kubectl port-forward service/rabbitmq 15672:15672`
+- **Port-forward API**: `kubectl -n microservices port-forward service/notifications-api 8081:80`
+- **Port-forward RabbitMQ**: `kubectl -n microservices port-forward service/rabbitmq-service 15672:15672`
 
 ---
 
@@ -147,7 +182,7 @@ cfg.ReceiveEndpoint("notifications-user-created", e =>
 #### 1. Acessar RabbitMQ Management UI
 
 ```sh
-kubectl port-forward service/rabbitmq 15672:15672
+kubectl -n microservices port-forward service/rabbitmq-service 15672:15672
 # Acesse: http://localhost:15672
 # Login: fiap / fiap123
 ```
@@ -165,8 +200,8 @@ Na UI do RabbitMQ:
 {
   "messageId": "00000000-0000-0000-0000-000000000001",
   "conversationId": "00000000-0000-0000-0000-000000000002",
-  "sourceAddress": "rabbitmq://rabbitmq/user_api",
-  "destinationAddress": "rabbitmq://rabbitmq/notifications-user-created",
+  "sourceAddress": "rabbitmq://rabbitmq-service/user_api",
+  "destinationAddress": "rabbitmq://rabbitmq-service/notifications-user-created",
   "messageType": [
     "urn:message:Shared.Events:UserCreatedEvent"
   ],
@@ -187,8 +222,8 @@ Na UI do RabbitMQ:
 {
   "messageId": "00000000-0000-0000-0000-000000000003",
   "conversationId": "00000000-0000-0000-0000-000000000004",
-  "sourceAddress": "rabbitmq://rabbitmq/payment_api",
-  "destinationAddress": "rabbitmq://rabbitmq/notifications-payment-processed",
+  "sourceAddress": "rabbitmq://rabbitmq-service/payment_api",
+  "destinationAddress": "rabbitmq://rabbitmq-service/notifications-payment-processed",
   "messageType": [
     "urn:message:Shared.Events:PaymentProcessedEvent"
   ],
@@ -206,7 +241,7 @@ Na UI do RabbitMQ:
 #### 4. Verificar Logs
 
 ```sh
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 ```
 
 **Saída esperada:**
@@ -235,7 +270,7 @@ curl http://localhost:8081/health
 **Cenário 1: Usuário criado**
 ```sh
 # Publicar UserCreatedEvent via RabbitMQ Management UI
-# Verificar logs: kubectl logs -f deployment/notifications-api
+# Verificar logs: kubectl logs -n microservices -f deployment/notifications-api
 # Log esperado: "[NotificationsAPI] Welcome email sent to user@example.com"
 ```
 
@@ -272,8 +307,15 @@ NotificationsAPI/
 │       ├── UserCreatedEvent.cs
 │       └── PaymentProcessedEvent.cs
 ├── k8s/                   # Kubernetes manifests
-│   ├── notifications-deployment.yaml
-│   └── rabbitmq-deployment.yaml
+│   ├── notifications-api/
+│   │   ├── notifications-configmap.yaml
+│   │   ├── notifications-deployment.yaml
+│   │   └── notaifications-service.yaml
+│   └── services/
+│       ├── configmap-rabbitmq.yaml
+│       ├── deployment-rabbitmq.yaml
+│       ├── secrets-rabbitmq.yaml
+│       └── sqlserver-secret.yaml
 ├── Dockerfile             # Multi-stage build
 ├── Program.cs             # Configuração da aplicação
 ├── appsettings.json       # Configurações locais
@@ -288,29 +330,29 @@ NotificationsAPI/
 
 ```sh
 # Ver logs detalhados
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 
 # Verificar eventos
-kubectl describe pod -l app=notifications-api
+kubectl describe pod -n microservices -l app=notifications-api
 
 # Problemas comuns:
-# 1. RabbitMQ não conecta → Verifique: kubectl get pods | grep rabbitmq
+# 1. RabbitMQ não conecta → Verifique: kubectl get pods -n microservices | findstr rabbitmq
 # 2. Filas não criadas → As filas são criadas automaticamente pelo MassTransit
-# 3. Imagem não encontrada → Verifique: docker images | grep notificationsapi
+# 3. Imagem não encontrada → Verifique: docker images | findstr notifications-api
 ```
 
 ### RabbitMQ não está rodando
 
 ```sh
 # Verificar status
-kubectl get pods -l app=rabbitmq
+kubectl get pods -n microservices -l app=rabbitmq
 
 # Logs do RabbitMQ
-kubectl logs -f deployment/rabbitmq
+kubectl logs -n microservices -f deployment/rabbitmq
 
 # Redeploy
-kubectl delete -f k8s/rabbitmq-deployment.yaml
-kubectl apply -f k8s/rabbitmq-deployment.yaml
+kubectl delete -n microservices -f k8s/services/deployment-rabbitmq.yaml
+kubectl apply -n microservices -f k8s/services/deployment-rabbitmq.yaml
 ```
 
 ### Mensagens não são consumidas
@@ -326,7 +368,7 @@ kubectl apply -f k8s/rabbitmq-deployment.yaml
 # - notifications-payment-processed
 
 # 2. Verificar logs do NotificationsAPI
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 
 # 3. Verificar se o consumer está conectado
 # No RabbitMQ Management UI: Queues → [nome da fila] → Consumers
@@ -335,10 +377,10 @@ kubectl logs -f deployment/notifications-api
 **Solução:**
 ```sh
 # Reiniciar o pod
-kubectl delete pod -l app=notifications-api
+kubectl delete -n microservices pod -l app=notifications-api
 
 # Verificar reconexão
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 ```
 
 ### Erro: Cannot connect to RabbitMQ
@@ -348,33 +390,34 @@ kubectl logs -f deployment/notifications-api
 **Solução:**
 ```sh
 # 1. Verificar se RabbitMQ está running
-kubectl get pods -l app=rabbitmq
+kubectl get pods -n microservices -l app=rabbitmq
 
 # 2. Aguardar RabbitMQ ficar pronto
-kubectl wait --for=condition=ready pod -l app=rabbitmq --timeout=60s
+kubectl wait -n microservices --for=condition=ready pod -l app=rabbitmq --timeout=60s
 
 # 3. Reiniciar NotificationsAPI
-kubectl delete pod -l app=notifications-api
+kubectl delete -n microservices pod -l app=notifications-api
 ```
 
 ### Verificar Status Geral
 
 ```sh
 # Status de todos os pods
-kubectl get pods
+kubectl get pods -n microservices
 
 # Logs NotificationsAPI
-kubectl logs -f deployment/notifications-api
+kubectl logs -n microservices -f deployment/notifications-api
 
 # Logs RabbitMQ
-kubectl logs -f deployment/rabbitmq
+kubectl logs -n microservices -f deployment/rabbitmq
 
 # Remover tudo e redeployar
-kubectl delete -f k8s/
-kubectl apply -f k8s/rabbitmq-deployment.yaml
+kubectl delete -n microservices -f k8s/
+kubectl apply -n microservices -f k8s/services/deployment-rabbitmq.yaml
 # Aguardar RabbitMQ ficar pronto
 sleep 30
-kubectl apply -f k8s/notifications-deployment.yaml
+kubectl apply -n microservices -f k8s/notifications-api/notifications-deployment.yaml
+kubectl apply -n microservices -f k8s/notifications-api/notaifications-service.yaml
 ```
 
 ---
@@ -441,22 +484,6 @@ readinessProbe:
   periodSeconds: 5
 ```
 
-### Notificações Reais
-Substitua logs por envio real de emails:
-
-```csharp
-// UserCreatedConsumer.cs
-public async Task Consume(ConsumeContext<UserCreatedEvent> context)
-{
-    var message = context.Message;
-    
-    // Enviar email via SendGrid, AWS SES, ou Azure Communication Services
-    await _emailService.SendWelcomeEmailAsync(message.Email, message.UserId);
-    
-    logger.LogInformation("Welcome email sent to {Email}", message.Email);
-}
-```
-
 ### Secrets Management
 - Use Azure Key Vault ou HashiCorp Vault
 - Credenciais RabbitMQ em Kubernetes Secrets
@@ -469,22 +496,19 @@ public async Task Consume(ConsumeContext<UserCreatedEvent> context)
 - Monitore métricas de consumo de mensagens
 
 ### Persistência de Mensagens
-Configure RabbitMQ com volume persistente:
+RabbitMQ já está configurado com `PersistentVolumeClaim`:
 
 ```yaml
-# rabbitmq-deployment.yaml
-spec:
-  template:
-    spec:
-      volumes:
-        - name: rabbitmq-data
-          persistentVolumeClaim:
-            claimName: rabbitmq-pvc
-      containers:
-        - name: rabbitmq
-          volumeMounts:
-            - name: rabbitmq-data
-              mountPath: /var/lib/rabbitmq
+# deployment-rabbitmq.yaml
+volumes:
+  - name: rabbitmq-data
+    persistentVolumeClaim:
+      claimName: rabbitmq-pvc
+containers:
+  - name: rabbitmq
+    volumeMounts:
+      - name: rabbitmq-data
+        mountPath: /var/lib/rabbitmq
 ```
 
 ### Dead Letter Queue (DLQ)
